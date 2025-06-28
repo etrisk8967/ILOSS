@@ -1,0 +1,78 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Compiled objects
+*.o
+*.obj
+*.so
+*.dll
+*.dylib
+*.a
+*.lib
+*.exe
+
+# Qt specific
+*.pro.user
+*.pro.user.*
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+*.qm
+.qmake.stash
+
+# Documentation
+docs/html/
+docs/latex/
+Doxyfile.bak
+
+# Test and coverage files
+*.gcda
+*.gcno
+*.gcov
+coverage/
+*.profraw
+*.profdata
+
+# Package files
+*.tar.gz
+*.zip
+*.deb
+*.rpm
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+
+# Python cache (for any helper scripts)
+__pycache__/
+*.pyc
+
+# External dependencies (will be managed by CMake)
+external/*/
+
+# OS specific
+Thumbs.db
+desktop.ini
+
+# Core dumps
+core
+vgcore.*
+
+# Static analysis
+.clang-tidy
+compile_commands.json
+.cache/

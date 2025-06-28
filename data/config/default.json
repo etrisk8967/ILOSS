@@ -1,0 +1,48 @@
+{
+    "simulation": {
+        "timestep": 0.1,
+        "startTime": 0.0,
+        "duration": 86400.0,
+        "realtime": false,
+        "speedup": 1.0
+    },
+    "forceModels": {
+        "twoBody": true,
+        "j2": true,
+        "higherOrderGravity": false,
+        "gravityDegree": 8,
+        "gravityOrder": 8,
+        "thirdBody": true,
+        "drag": true,
+        "solarRadiationPressure": true
+    },
+    "visualization": {
+        "enabled": true,
+        "targetFPS": 60,
+        "windowWidth": 1920,
+        "windowHeight": 1080,
+        "fullscreen": false,
+        "vsync": true,
+        "theme": "dark"
+    },
+    "dataPaths": {
+        "terrainData": "data/terrain",
+        "imageryData": "data/imagery",
+        "ephemerisData": "data/ephemeris",
+        "vehicleData": "data/vehicles",
+        "missionData": "data/missions"
+    },
+    "logging": {
+        "level": "info",
+        "file": "",
+        "console": true,
+        "maxFileSize": 10485760,
+        "maxFiles": 5
+    },
+    "performance": {
+        "numThreads": 0,
+        "useGPU": true,
+        "maxTrajectoryPoints": 1000000,
+        "lodScale": 1.0
+    }
+}

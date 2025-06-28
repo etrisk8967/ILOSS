@@ -1,0 +1,32 @@
+# Doxyfile for ILOSS
+
+PROJECT_NAME           = "ILOSS"
+PROJECT_NUMBER         = @PROJECT_VERSION@
+PROJECT_BRIEF          = "Integrated Launch and Orbit Simulation System"
+
+OUTPUT_DIRECTORY       = @CMAKE_CURRENT_BINARY_DIR@/docs
+
+INPUT                  = @CMAKE_SOURCE_DIR@/include \
+                        @CMAKE_SOURCE_DIR@/src \
+                        @CMAKE_SOURCE_DIR@/README.md
+
+RECURSIVE              = YES
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+
+USE_MDFILE_AS_MAINPAGE = README.md
+
+# Include diagrams
+HAVE_DOT               = YES
+DOT_GRAPH_MAX_NODES    = 100
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+
+# C++ specific settings
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+MULTILINE_CPP_IS_BRIEF = YES
