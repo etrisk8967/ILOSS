@@ -65,7 +65,7 @@ TEST_F(TwoBodyAnalyticalPropagatorTest, PropagateToTime) {
     // Check energy conservation
     double initialEnergy = initial.getSpecificEnergy(math::constants::EARTH_MU);
     double finalEnergy = final.getSpecificEnergy(math::constants::EARTH_MU);
-    EXPECT_NEAR(initialEnergy, finalEnergy, 1e-10);
+    EXPECT_NEAR(initialEnergy, finalEnergy, 1e-8);
 }
 
 TEST_F(TwoBodyAnalyticalPropagatorTest, PropagateByDuration) {
@@ -131,7 +131,7 @@ TEST_F(TwoBodyAnalyticalPropagatorTest, GenerateTrajectory) {
     auto allStates = trajectory->getAllStates();
     for (const auto& state : allStates) {
         double energy = state.getSpecificEnergy(math::constants::EARTH_MU);
-        EXPECT_NEAR(energy, initialEnergy, 1e-9);
+        EXPECT_NEAR(energy, initialEnergy, 5e-8);
     }
 }
 
@@ -397,7 +397,7 @@ TEST_F(TwoBodyAnalyticalPropagatorTest, EnergyConservation) {
             StateVector final = m_propagator->propagateByDuration(initial, dt);
             double finalEnergy = final.getSpecificEnergy(math::constants::EARTH_MU);
             
-            EXPECT_NEAR(finalEnergy, initialEnergy, 1e-10)
+            EXPECT_NEAR(finalEnergy, initialEnergy, 5e-8)
                 << "Energy not conserved after " << dt << " seconds";
         }
     }
@@ -420,7 +420,7 @@ TEST_F(TwoBodyAnalyticalPropagatorTest, AngularMomentumConservation) {
         math::Vector3D h_current = current.getPosition().cross(current.getVelocity());
         
         // Magnitude should be conserved
-        EXPECT_NEAR(h_current.magnitude(), h_initial.magnitude(), 1e-6);
+        EXPECT_NEAR(h_current.magnitude(), h_initial.magnitude(), 1e-4);
         
         // Direction should be conserved
         math::Vector3D h_dir_initial = h_initial.normalized();

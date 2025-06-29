@@ -251,8 +251,11 @@ StateVector KeplerPropagator::elementsToState(const OrbitalElements& elements,
     math::Vector3D r_pqw(r_mag * cos_nu, r_mag * sin_nu, 0.0);
     
     // Velocity in perifocal frame
-    math::Vector3D v_pqw(-v_rad * sin_nu + v_tan * cos_nu,
-                         v_rad * cos_nu + v_tan * sin_nu,
+    // v_p = dr/dt * cos(nu) - r * dnu/dt * sin(nu)
+    // v_q = dr/dt * sin(nu) + r * dnu/dt * cos(nu)
+    // For circular/elliptical orbits: dr/dt = v_rad, r * dnu/dt = v_tan
+    math::Vector3D v_pqw(v_rad * cos_nu - v_tan * sin_nu,
+                         v_rad * sin_nu + v_tan * cos_nu,
                          0.0);
     
     // Rotation matrices

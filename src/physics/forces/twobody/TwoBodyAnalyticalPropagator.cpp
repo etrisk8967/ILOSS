@@ -247,7 +247,7 @@ double TwoBodyAnalyticalPropagator::timeToTrueAnomaly(const StateVector& current
     
     // For circular orbits, time is proportional to angle
     if (elements.e < 1e-8) {
-        return std::abs(deltaNu) / elements.n;
+        return deltaNu / elements.n;
     }
     
     // For elliptical orbits, use mean anomaly
@@ -387,16 +387,11 @@ LambertSolution TwoBodyAnalyticalPropagator::solveLambertUniversal(
         throw std::invalid_argument("Position vectors must be non-zero");
     }
     
-    // Calculate chord and semi-perimeter
-    math::Vector3D chord = r2 - r1;
-    double c = chord.magnitude();
-    double s = (r1_mag + r2_mag + c) / 2.0;
-    
     // Calculate transfer angle
     double cos_dnu = r1.dot(r2) / (r1_mag * r2_mag);
     cos_dnu = std::max(-1.0, std::min(1.0, cos_dnu));
     
-    // Determine if transfer is possible
+    // Determine transfer direction
     math::Vector3D h = r1.cross(r2);
     if (h.magnitude() < 1e-10) {
         LOG_WARN("TwoBodyAnalyticalPropagator", "Colinear vectors in Lambert problem");
@@ -405,45 +400,92 @@ LambertSolution TwoBodyAnalyticalPropagator::solveLambertUniversal(
         return solution;
     }
     
-    // Check retrograde flag
+    double dnu = std::acos(cos_dnu);
     if ((h.z() < 0 && !isRetrograde) || (h.z() > 0 && isRetrograde)) {
-        cos_dnu = -cos_dnu;
+        dnu = 2.0 * math::constants::PI - dnu;
     }
     
-    double sin_dnu = std::sqrt(1.0 - cos_dnu * cos_dnu);
-    if (isRetrograde) sin_dnu = -sin_dnu;
-    
-    // Lambda parameter (would be used in full implementation)
-    // double lambda = std::sqrt(r1_mag * r2_mag) * cos_dnu / s;
-    
-    // Time of flight function (simplified universal variable approach)
-    // This is a simplified implementation - a full implementation would use
-    // iterative solving of the universal variable equation
-    
-    // Estimate semi-major axis
+    // Use simpler universal variable approach
+    double chord = (r2 - r1).magnitude();
+    double s = (r1_mag + r2_mag + chord) / 2.0;
     double a_min = s / 2.0;
-    double tof_parabolic = std::sqrt(2.0 / m_mu) * (std::pow(s, 1.5) - std::pow(s - c, 1.5)) / 3.0;
     
-    if (tof < tof_parabolic) {
-        // Elliptical transfer - use approximate solution
-        solution.a = a_min * 1.1; // Initial guess
-        solution.e = std::sqrt(1.0 - (2.0 * std::sqrt(r1_mag * r2_mag) * cos_dnu) / (r1_mag + r2_mag));
-    } else {
-        // Hyperbolic transfer
-        solution.a = -a_min * 0.9;
-        solution.e = std::sqrt(1.0 + (2.0 * std::sqrt(r1_mag * r2_mag) * cos_dnu) / (r1_mag + r2_mag));
+    // Check if transfer angle is more than 180 degrees
+    double lambda = 1.0;
+    if (dnu > math::constants::PI) {
+        lambda = -1.0;
     }
     
-    // Calculate velocities (simplified)
-    double v1_r = (r2_mag - r1_mag) / tof;
-    double v1_t = std::sqrt(m_mu / (r1_mag * solution.a)) * std::sqrt(2.0 - r1_mag / solution.a);
+    // Calculate initial guess for semi-major axis
+    double a;
+    double alpha = 2.0 * std::asin(std::sqrt(s / (2.0 * a_min)));
+    double beta = 2.0 * std::asin(std::sqrt((s - chord) / (2.0 * a_min)));
     
-    // Construct velocity vectors (simplified - full implementation would be more complex)
-    math::Vector3D v1_dir = chord / c;
-    solution.v1 = v1_dir * v1_r + r1.cross(v1_dir) * (v1_t / r1_mag);
+    if (lambda > 0) {
+        a = a_min / (1.0 - std::cos((alpha - beta) / 2.0));
+    } else {
+        a = a_min / (1.0 - std::cos((alpha + beta) / 2.0));
+    }
     
-    // Similar calculation for v2
-    solution.v2 = solution.v1; // Placeholder
+    // Newton-Raphson iteration
+    const int max_iter = 50;
+    const double tol = 1e-8;
+    
+    for (int iter = 0; iter < max_iter; ++iter) {
+        // Calculate eccentric anomalies
+        double cos_E1 = 1.0 - r1_mag / a;
+        double cos_E2 = 1.0 - r2_mag / a;
+        double sin_E1 = lambda * std::sqrt(r1_mag * r2_mag / a) * std::sin(dnu) / std::sqrt(a);
+        double sin_E2 = sin_E1;
+        
+        double E1 = std::atan2(sin_E1, cos_E1);
+        double E2 = std::atan2(sin_E2, cos_E2);
+        
+        // Ensure E2 > E1
+        if (E2 < E1) {
+            E2 += 2.0 * math::constants::PI;
+        }
+        
+        // Calculate time of flight for this a
+        double n = std::sqrt(m_mu / (a * a * a));
+        double tof_calc = (E2 - E1 - (sin_E2 - sin_E1)) / n;
+        
+        if (std::abs(tof_calc - tof) < tol) {
+            break;
+        }
+        
+        // Calculate derivative
+        double dtof_da = -1.5 * tof_calc / a;
+        
+        // Update a
+        a = a - (tof_calc - tof) / dtof_da;
+        
+        // Ensure a remains positive for elliptical orbits
+        if (a <= 0 && tof < 0.8 * s * std::sqrt(s / m_mu)) {
+            a = a_min * 1.1;
+        }
+    }
+    
+    solution.a = a;
+    
+    // Calculate velocities using f and g functions
+    double sqrt_mu_a = std::sqrt(m_mu * std::abs(a));
+    double sin_dE = lambda * std::sqrt(r1_mag * r2_mag) * std::sin(dnu) / sqrt_mu_a;
+    double cos_dE = (r1_mag + r2_mag) / a - 1.0;
+    double dE = std::atan2(sin_dE, cos_dE);
+    
+    double f = 1.0 - (a / r1_mag) * (1.0 - cos_dE);
+    double g = tof - std::sqrt(std::abs(a * a * a) / m_mu) * (dE - sin_dE);
+    double g_dot = 1.0 - (a / r2_mag) * (1.0 - cos_dE);
+    
+    solution.v1 = (r2 - f * r1) / g;
+    solution.v2 = (g_dot * r2 - r1) / g;
+    
+    // Calculate eccentricity
+    math::Vector3D h_vec = r1.cross(solution.v1);
+    double h_mag = h_vec.magnitude();
+    double p = h_mag * h_mag / m_mu;
+    solution.e = std::sqrt(1.0 - p / a);
     
     solution.isRetrograde = isRetrograde;
     solution.revolutions = 0;

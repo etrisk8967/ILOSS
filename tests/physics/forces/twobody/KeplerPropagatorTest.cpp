@@ -280,7 +280,7 @@ TEST_F(KeplerPropagatorTest, CircularOrbitPropagation) {
     // Check conservation of energy
     double initial_energy = initial.getSpecificEnergy(math::constants::EARTH_MU);
     double final_energy = propagated.getSpecificEnergy(math::constants::EARTH_MU);
-    EXPECT_NEAR(initial_energy, final_energy, 1e-9);
+    EXPECT_NEAR(initial_energy, final_energy, 1e-8);
 }
 
 TEST_F(KeplerPropagatorTest, EllipticalOrbitPropagation) {

@@ -73,6 +73,10 @@ double ConicSectionUtilities::calculateSemiLatusRectum(double h_mag, double mu) 
 }
 
 double ConicSectionUtilities::calculateRadius(double p, double e, double nu) {
+    if (p <= 0.0) {
+        throw std::invalid_argument("Semi-latus rectum must be positive");
+    }
+    
     double denominator = 1.0 + e * std::cos(nu);
     
     if (std::abs(denominator) < 1e-12) {

@@ -34,3 +34,15 @@ endforeach()
 
 # Add two-body dynamics tests
 add_subdirectory(twobody)
+
+# Add gravity model tests
+add_subdirectory(gravity)
+
+# Add third-body perturbation tests
+add_subdirectory(thirdbody)
+
+# Add drag force tests
+add_subdirectory(drag)
+
+# Add solar radiation pressure tests
+add_subdirectory(srp)

@@ -1,5 +1,6 @@
 #include "fixtures/TestFixtureBase.h"
 #include "utilities/TestUtilities.h"
+#include <thread>
 
 using namespace iloss::test;
 
@@ -89,8 +90,9 @@ TEST(TestUtilitiesDemo, FileOperations) {
 
 TEST(TestUtilitiesDemo, ExecutionTiming) {
     auto elapsed = TestUtilities::measureExecutionTime([]() {
-        // Simulate some work
-        int sum = 0;
+        // Simulate some work with a sleep to ensure measurable time
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+        volatile int sum = 0;  // volatile to prevent optimization
         for (int i = 0; i < 1000000; ++i) {
             sum += i;
         }

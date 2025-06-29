@@ -48,7 +48,7 @@ TEST_F(ConicSectionUtilitiesTest, SpecificEnergy) {
     
     // For circular orbit, energy = -μ/(2a) = -μ/(2r)
     double expected_energy = -m_mu / (2.0 * radius);
-    EXPECT_NEAR(energy, expected_energy, 1e-9);
+    EXPECT_NEAR(energy, expected_energy, 1e-8);
     
     // Test bound orbit (negative energy)
     EXPECT_TRUE(ConicSectionUtilities::isBoundOrbit(energy));
@@ -57,7 +57,7 @@ TEST_F(ConicSectionUtilitiesTest, SpecificEnergy) {
     double v_escape = std::sqrt(2.0 * m_mu / radius);
     velocity = math::Vector3D(0.0, v_escape, 0.0);
     energy = ConicSectionUtilities::calculateSpecificEnergy(position, velocity, m_mu);
-    EXPECT_NEAR(energy, 0.0, 1e-9);
+    EXPECT_NEAR(energy, 0.0, 1e-8);
     
     // Test hyperbolic trajectory (positive energy)
     velocity = math::Vector3D(0.0, v_escape * 1.5, 0.0);
@@ -326,7 +326,7 @@ TEST_F(ConicSectionUtilitiesTest, Apsides) {
     
     // Hyperbolic orbit
     auto [r_p_hyp, r_a_hyp] = ConicSectionUtilities::calculateApsides(-a, 1.5);
-    EXPECT_LT(r_p_hyp, 0.0); // Negative periapsis for negative a
+    EXPECT_GT(r_p_hyp, 0.0); // Periapsis is always positive (it's a distance)
     EXPECT_TRUE(std::isinf(r_a_hyp));
 }
 

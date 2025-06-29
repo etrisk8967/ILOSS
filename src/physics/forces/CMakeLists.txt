@@ -1,12 +1,24 @@
+# Add subdirectory for gravity models
+add_subdirectory(gravity)
+
+# Add subdirectory for two-body dynamics
+add_subdirectory(twobody)
+
+# Add subdirectory for third-body perturbations
+add_subdirectory(thirdbody)
+
+# Add subdirectory for drag forces
+add_subdirectory(drag)
+
+# Add subdirectory for solar radiation pressure
+add_subdirectory(srp)
+
 # Force model implementation files
 set(FORCE_SOURCES
     ForceAggregator.cpp
     ForceModelRegistry.cpp
+    RegisterStandardModels.cpp
     SimpleGravityModel.cpp
-    twobody/TwoBodyForceModel.cpp
-    twobody/KeplerPropagator.cpp
-    twobody/ConicSectionUtilities.cpp
-    twobody/TwoBodyAnalyticalPropagator.cpp
 )
 
 # Create forces library
@@ -27,7 +39,15 @@ target_link_libraries(iloss_forces
         iloss_logging
         iloss_coordinates
         iloss_constants
+        iloss_earth_gravity
+        iloss_twobody
+        iloss_thirdbody
+        iloss_drag_force
+        iloss_srp
 )
+
+# Create alias for force model base
+add_library(iloss_force_model ALIAS iloss_forces)
 
 # Set properties
 set_target_properties(iloss_forces PROPERTIES

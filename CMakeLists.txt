@@ -321,6 +321,7 @@ if(SPICE_ROOT_DIR)
     
     if(SPICE_INCLUDE_DIR AND SPICE_LIBRARY)
         set(SPICE_FOUND TRUE)
+        set(SPICE_LIBRARIES ${SPICE_LIBRARY})
         message(STATUS "Found SPICE toolkit at ${SPICE_ROOT_DIR}")
         message(STATUS "  Include: ${SPICE_INCLUDE_DIR}")
         message(STATUS "  Library: ${SPICE_LIBRARY}")

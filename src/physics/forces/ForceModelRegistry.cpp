@@ -243,19 +243,12 @@ void ForceModelRegistry::clear() {
     m_logger.info(logging::LogCategory::Physics, "Cleared all force model registrations");
 }
 
+// Forward declaration of registration function
+void registerStandardForceModels();
+
 void ForceModelRegistry::registerStandardModels() {
-    m_logger.info(logging::LogCategory::Physics, "Registering standard force models");
-    
-    // Note: The actual implementations of these models will be added in subsequent tasks
-    // For now, we're just setting up the registry structure
-    
-    // Two-body gravity will be implemented in Task 18
-    // Earth gravity field will be implemented in Task 19
-    // Third-body perturbations will be implemented in Task 20
-    // Atmospheric drag will be implemented in Task 21
-    // Solar radiation pressure will be implemented in Task 22
-    
-    // The registry is ready to accept these registrations when the models are implemented
+    // Call the external registration function
+    registerStandardForceModels();
 }
 
 } // namespace forces
