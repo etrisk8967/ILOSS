@@ -11,7 +11,7 @@ namespace forces {
 namespace drag {
 
 DragForceModel::DragForceModel(std::shared_ptr<constants::AtmosphericModel> atmosphericModel)
-    : ForceModel("AtmosphericDrag", ForceModelType::Drag)
+    : IAttitudeAwareForceModel("AtmosphericDrag", ForceModelType::Drag)
     , m_dragCoefficient(2.2)  // Default drag coefficient for typical spacecraft
     , m_area(10.0)           // Default area 10 m²
     , m_ballisticCoefficient(0.0)
@@ -109,6 +109,9 @@ math::Vector3D DragForceModel::calculateAcceleration(
     math::Vector3D relativeVelocity = ecefVelocity - atmosphericVelocity;
     double relativeSpeed = relativeVelocity.magnitude();
     
+    LOG_TRACE("DragForceModel",
+        "Relative velocity magnitude: " + std::to_string(relativeSpeed) + " m/s");
+    
     // If relative velocity is near zero, no drag
     if (relativeSpeed < 1e-6) {
         return math::Vector3D(0.0, 0.0, 0.0);
@@ -129,19 +132,14 @@ math::Vector3D DragForceModel::calculateAcceleration(
         // Create transformation parameters
         auto params = coordinates::CoordinateTransformer::createParameters(time);
         
-        // Transform acceleration as a velocity vector in a state
-        coordinates::StateVector ecefAccelState;
-        ecefAccelState.position = ecefPosition;
-        ecefAccelState.velocity = dragAcceleration;  // Treat acceleration as velocity for transformation
-        
-        coordinates::StateVector origAccelState = m_coordinateTransformer->transform(
-            ecefAccelState,
+        // For acceleration, we only need to rotate the vector, not apply the full state transformation
+        // The full state transformation includes velocity transformation effects that don't apply to accelerations
+        dragAcceleration = m_coordinateTransformer->transformPosition(
+            dragAcceleration,
             coordinates::CoordinateSystemType::ECEF_WGS84,
             state.getCoordinateSystem(),
             params
         );
-        
-        dragAcceleration = origAccelState.velocity;  // Extract transformed acceleration
     }
     
     // Log detailed information if in debug mode
@@ -334,6 +332,168 @@ double DragForceModel::getEffectiveDragArea(double mass) const {
     } else {
         return m_dragCoefficient * m_area;
     }
+}
+
+math::Vector3D DragForceModel::calculateAccelerationWithAttitude(
+    const dynamics::DynamicsState& state,
+    const time::Time& time) const {
+    
+    if (!m_enabled) {
+        return math::Vector3D(0.0, 0.0, 0.0);
+    }
+
+    // Get position and velocity from state
+    math::Vector3D position = state.getPosition();
+    math::Vector3D velocity = state.getVelocity();
+    double mass = state.getMass();
+    math::Quaternion attitude = state.getAttitude();
+
+    // Transform to ECEF if needed for atmospheric model
+    math::Vector3D ecefPosition = position;
+    math::Vector3D ecefVelocity = velocity;
+    
+    if (state.getCoordinateSystem() != coordinates::CoordinateSystemType::ECEF_WGS84) {
+        // Create transformation parameters
+        auto params = coordinates::CoordinateTransformer::createParameters(time);
+        
+        // Transform position
+        ecefPosition = m_coordinateTransformer->transformPosition(
+            position, 
+            state.getCoordinateSystem(),
+            coordinates::CoordinateSystemType::ECEF_WGS84,
+            params
+        );
+        
+        // Transform velocity by creating a state vector
+        coordinates::StateVector coordState;
+        coordState.position = position;
+        coordState.velocity = velocity;
+        
+        coordinates::StateVector ecefState = m_coordinateTransformer->transform(
+            coordState,
+            state.getCoordinateSystem(),
+            coordinates::CoordinateSystemType::ECEF_WGS84,
+            params
+        );
+        
+        ecefVelocity = ecefState.velocity;
+    }
+
+    // Calculate altitude for validation
+    double altitude = constants::EarthModel::getAltitude(ecefPosition);
+    
+    // Check if we're within valid atmosphere range
+    if (!m_atmosphericModel->isValidAltitude(altitude)) {
+        // Outside atmosphere - no drag
+        LOG_TRACE("DragForceModel", 
+            "Outside atmosphere range: altitude=" + std::to_string(altitude/1000.0) + " km");
+        return math::Vector3D(0.0, 0.0, 0.0);
+    }
+
+    // Get atmospheric density
+    double julianDate = time.getJulianDate();
+    double density = m_atmosphericModel->getDensity(ecefPosition, julianDate);
+    
+    LOG_TRACE("DragForceModel", 
+        "Density at altitude " + std::to_string(altitude/1000.0) + " km: " + 
+        std::to_string(density) + " kg/m³");
+    
+    // Calculate relative velocity in ECEF frame
+    math::Vector3D atmosphericVelocity(0.0, 0.0, 0.0);
+    
+    if (m_enableAtmosphericRotation) {
+        atmosphericVelocity = calculateAtmosphericVelocity(ecefPosition);
+    }
+    
+    if (m_enableWind) {
+        atmosphericVelocity = atmosphericVelocity + m_windVelocity;
+    }
+    
+    math::Vector3D relativeVelocity = ecefVelocity - atmosphericVelocity;
+    double relativeSpeed = relativeVelocity.magnitude();
+    
+    LOG_TRACE("DragForceModel",
+        "Relative velocity magnitude: " + std::to_string(relativeSpeed) + " m/s");
+    
+    // If relative velocity is near zero, no drag
+    if (relativeSpeed < 1e-6) {
+        return math::Vector3D(0.0, 0.0, 0.0);
+    }
+
+    // Calculate the relative velocity direction in the body frame
+    // This is needed to determine the attitude-dependent area
+    math::Vector3D relVelDirection = relativeVelocity.normalized();
+    
+    // Transform velocity direction to body frame if we're not in ECEF
+    // (assuming attitude is defined relative to the state's coordinate system)
+    if (state.getCoordinateSystem() != coordinates::CoordinateSystemType::ECEF_WGS84) {
+        // Transform back to original frame first
+        auto params = coordinates::CoordinateTransformer::createParameters(time);
+        relVelDirection = m_coordinateTransformer->transformPosition(
+            relVelDirection,
+            coordinates::CoordinateSystemType::ECEF_WGS84,
+            state.getCoordinateSystem(),
+            params
+        );
+    }
+    
+    // Transform to body frame
+    math::Vector3D bodyVelDirection = state.inertialToBody(relVelDirection);
+    
+    // Calculate attitude-dependent area
+    double effectiveArea = calculateAttitudeDependentArea(bodyVelDirection, attitude);
+    
+    // Calculate drag acceleration
+    // F_drag = -0.5 * Cd * A * ρ * v² * v̂
+    // a_drag = F_drag / m = -0.5 * (Cd * A / m) * ρ * v² * v̂
+    
+    double effectiveDragCoeff = m_dragCoefficient * effectiveArea;
+    if (m_useBallisticCoefficient) {
+        effectiveDragCoeff = mass / m_ballisticCoefficient;
+    }
+    
+    double dragMagnitude = 0.5 * effectiveDragCoeff * density * relativeSpeed * relativeSpeed / mass;
+    
+    // Direction is opposite to relative velocity
+    math::Vector3D dragAcceleration = relativeVelocity.normalized() * (-dragMagnitude);
+    
+    // Transform back to original coordinate system if needed
+    if (state.getCoordinateSystem() != coordinates::CoordinateSystemType::ECEF_WGS84) {
+        auto params = coordinates::CoordinateTransformer::createParameters(time);
+        dragAcceleration = m_coordinateTransformer->transformPosition(
+            dragAcceleration,
+            coordinates::CoordinateSystemType::ECEF_WGS84,
+            state.getCoordinateSystem(),
+            params
+        );
+    }
+    
+    // Log detailed information if in debug mode
+    LOG_TRACE("DragForceModel", 
+        "Drag calculation with attitude: altitude=" + std::to_string(altitude/1000.0) + " km, " +
+        "density=" + std::to_string(density) + " kg/m³, " +
+        "rel_speed=" + std::to_string(relativeSpeed) + " m/s, " +
+        "effective_area=" + std::to_string(effectiveArea) + " m², " +
+        "drag_accel=" + std::to_string(dragAcceleration.magnitude()) + " m/s²"
+    );
+    
+    return dragAcceleration;
+}
+
+double DragForceModel::calculateAttitudeDependentArea(
+    const math::Vector3D& velocityDirection,
+    const math::Quaternion& attitude) const {
+    
+    // Default implementation: return the reference area
+    // This maintains the same behavior as before when attitude is not considered
+    // 
+    // Derived classes can override this to implement specific area models:
+    // - Flat plate: A = A_ref * |cos(θ)| where θ is angle between normal and velocity
+    // - Sphere: A = A_ref (constant regardless of attitude)
+    // - Box: A = A_x * |v_x| + A_y * |v_y| + A_z * |v_z| (sum of projected areas)
+    // - Complex geometry: lookup table or analytical model
+    
+    return m_area;
 }
 
 } // namespace drag

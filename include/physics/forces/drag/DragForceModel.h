@@ -1,6 +1,6 @@
 #pragma once
 
-#include "physics/forces/ForceModel.h"
+#include "physics/forces/IAttitudeAwareForceModel.h"
 #include "core/constants/AtmosphericModel.h"
 #include "core/coordinates/CoordinateTransformer.h"
 #include <memory>
@@ -11,7 +11,7 @@ namespace forces {
 namespace drag {
 
 /**
- * @brief Atmospheric drag force model
+ * @brief Atmospheric drag force model with attitude awareness
  * 
  * This class implements atmospheric drag force calculation for spacecraft
  * and other objects moving through the atmosphere. The drag force is computed
@@ -21,15 +21,17 @@ namespace drag {
  * 
  * where:
  * - Cd is the drag coefficient
- * - A is the cross-sectional area
+ * - A is the cross-sectional area (can be attitude-dependent)
  * - ρ is the atmospheric density
  * - v_rel is the relative velocity between object and atmosphere
  * - v̂_rel is the unit vector in the direction of relative velocity
  * 
  * The model supports multiple atmospheric density models and can account
- * for atmospheric rotation and wind.
+ * for atmospheric rotation and wind. When attitude information is available,
+ * it can calculate the actual cross-sectional area based on the spacecraft's
+ * orientation relative to the velocity vector.
  */
-class DragForceModel : public ForceModel {
+class DragForceModel : public IAttitudeAwareForceModel {
 public:
     /**
      * @brief Constructor
@@ -52,9 +54,26 @@ public:
      * @param state Current state vector of the object
      * @param time Current time
      * @return Acceleration vector in m/s²
+     * 
+     * This method uses the reference area when attitude is not available.
      */
     math::Vector3D calculateAcceleration(
         const StateVector& state,
+        const time::Time& time) const override;
+
+    /**
+     * @brief Calculate acceleration with attitude-dependent area
+     * @param state Full dynamics state including attitude
+     * @param time Current time
+     * @return Acceleration vector in m/s²
+     * 
+     * When attitude is available, this method can calculate the actual
+     * cross-sectional area based on the spacecraft's orientation relative
+     * to the velocity vector. This provides more accurate drag calculations
+     * for non-spherical spacecraft.
+     */
+    math::Vector3D calculateAccelerationWithAttitude(
+        const dynamics::DynamicsState& state,
         const time::Time& time) const override;
 
     /**
@@ -182,6 +201,24 @@ public:
      */
     void setAtmosphericModel(std::shared_ptr<constants::AtmosphericModel> model);
 
+    /**
+     * @brief Get the reference area for drag calculation
+     * @return Reference area in m²
+     * 
+     * This returns the fixed cross-sectional area used when attitude
+     * information is not available.
+     */
+    double getReferenceArea() const override { return m_area; }
+
+    /**
+     * @brief Set the reference area for drag calculation
+     * @param area Reference area in m²
+     * 
+     * This sets the fixed cross-sectional area used when attitude
+     * information is not available.
+     */
+    void setReferenceArea(double area) override { setCrossSectionalArea(area); }
+
 protected:
     /**
      * @brief Calculate the relative velocity between object and atmosphere
@@ -203,6 +240,20 @@ protected:
      * @return Cd * A in m²
      */
     double getEffectiveDragArea(double mass) const;
+
+    /**
+     * @brief Calculate attitude-dependent cross-sectional area
+     * @param velocityDirection Unit vector in direction of relative velocity (body frame)
+     * @param attitude Current attitude quaternion
+     * @return Effective cross-sectional area in m²
+     * 
+     * This method can be overridden by derived classes to implement
+     * specific area models for different spacecraft geometries.
+     * The default implementation returns the reference area.
+     */
+    virtual double calculateAttitudeDependentArea(
+        const math::Vector3D& velocityDirection,
+        const math::Quaternion& attitude) const;
 
 private:
     // Configuration parameters

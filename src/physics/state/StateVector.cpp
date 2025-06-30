@@ -13,7 +13,7 @@ StateVector::StateVector()
     : m_position(Vector3D::zero()),
       m_velocity(Vector3D::zero()),
       m_mass(0.0),
-      m_time(),
+      m_time(time::TimeConstants::J2000_EPOCH, time::TimeSystem::UTC),
       m_coordinateSystem(coordinates::CoordinateSystemType::ECI_J2000),
       m_isValid(false),
       m_validationError("State vector not initialized")
@@ -357,6 +357,124 @@ std::string StateVector::toString() const
 void StateVector::updateValidity()
 {
     m_isValid = validate();
+}
+
+StateVector StateVector::operator+(const StateVector& other) const
+{
+    if (m_coordinateSystem != other.m_coordinateSystem) {
+        throw std::invalid_argument("Cannot add state vectors in different coordinate systems");
+    }
+    
+    // Add positions and velocities
+    Vector3D newPosition = m_position + other.m_position;
+    Vector3D newVelocity = m_velocity + other.m_velocity;
+    
+    // For mass, we'll use the average (this is a design decision for integration)
+    double newMass = (m_mass + other.m_mass) / 2.0;
+    
+    // For time, use the average
+    double t1 = m_time.getTime(time::TimeSystem::UTC);
+    double t2 = other.m_time.getTime(time::TimeSystem::UTC);
+    double avgTime = (t1 + t2) / 2.0;
+    
+    return StateVector(newPosition, newVelocity, newMass,
+                       time::Time(avgTime, time::TimeSystem::UTC),
+                       m_coordinateSystem);
+}
+
+StateVector StateVector::operator*(double scalar) const
+{
+    // Scale position and velocity
+    Vector3D newPosition = m_position * scalar;
+    Vector3D newVelocity = m_velocity * scalar;
+    
+    // Mass and time remain unchanged
+    return StateVector(newPosition, newVelocity, m_mass, m_time, m_coordinateSystem);
+}
+
+StateVector operator*(double scalar, const StateVector& state)
+{
+    return state * scalar;
+}
+
+
+double StateVector::getTimeAsDouble() const
+{
+    // Convert to seconds since J2000 in UTC
+    return m_time.getJ2000(time::TimeSystem::UTC);
+}
+
+void StateVector::setTime(double timeJ2000)
+{
+    // Convert J2000 seconds to Unix seconds
+    // J2000 epoch is 946728000.0 seconds after Unix epoch
+    double unixSeconds = timeJ2000 + time::TimeConstants::J2000_EPOCH;
+    m_time = time::Time(unixSeconds, time::TimeSystem::UTC);
+    updateValidity();
+}
+
+Eigen::VectorXd StateVector::toVector() const
+{
+    Eigen::VectorXd vec(7);
+    vec(0) = m_position.x();
+    vec(1) = m_position.y();
+    vec(2) = m_position.z();
+    vec(3) = m_velocity.x();
+    vec(4) = m_velocity.y();
+    vec(5) = m_velocity.z();
+    vec(6) = m_mass;
+    return vec;
+}
+
+StateVector StateVector::fromVector(const Eigen::VectorXd& vec, 
+                                    double timeJ2000,
+                                    coordinates::CoordinateSystemType coordinateSystem)
+{
+    if (vec.size() != 7) {
+        throw std::invalid_argument("Vector must have dimension 7 for StateVector");
+    }
+    
+    Vector3D position(vec(0), vec(1), vec(2));
+    Vector3D velocity(vec(3), vec(4), vec(5));
+    double mass = vec(6);
+    
+    // Convert J2000 seconds to Unix seconds
+    double unixSeconds = timeJ2000 + time::TimeConstants::J2000_EPOCH;
+    
+    return StateVector(position, velocity, mass,
+                       time::Time(unixSeconds, time::TimeSystem::UTC),
+                       coordinateSystem);
+}
+
+double StateVector::errorNorm(const StateVector& other) const
+{
+    if (m_coordinateSystem != other.m_coordinateSystem) {
+        throw std::invalid_argument("Cannot compute error norm between different coordinate systems");
+    }
+    
+    // Position error in meters
+    double posError = (m_position - other.m_position).magnitude();
+    
+    // Velocity error in m/s
+    double velError = (m_velocity - other.m_velocity).magnitude();
+    
+    // Mass error in kg
+    double massError = std::abs(m_mass - other.m_mass);
+    
+    // Weighted error norm suitable for adaptive integration
+    // Scale factors chosen to balance position (km), velocity (km/s), and mass (tons)
+    const double posScale = 1.0e3;    // 1 km
+    const double velScale = 1.0;      // 1 m/s
+    const double massScale = 1.0e3;   // 1 ton
+    
+    double scaledPosError = posError / posScale;
+    double scaledVelError = velError / velScale;
+    double scaledMassError = massError / massScale;
+    
+    // RMS error
+    return std::sqrt((scaledPosError * scaledPosError + 
+                      scaledVelError * scaledVelError + 
+                      scaledMassError * scaledMassError) / 3.0);
 }
 
 } // namespace physics

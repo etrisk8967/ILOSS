@@ -9,6 +9,8 @@ namespace physics {
 namespace forces {
 namespace twobody {
 
+using namespace iloss::logging;
+
 // Static member initialization
 const std::map<std::string, double> TwoBodyForceModel::BODY_MU_VALUES = {
     {"Earth", math::constants::EARTH_MU},
@@ -23,8 +25,8 @@ TwoBodyForceModel::TwoBodyForceModel(const std::string& name)
     : ForceModel(name, ForceModelType::TwoBody),
       m_mu(math::constants::EARTH_MU),
       m_centralBody("Earth") {
-    LOG_INFO("TwoBodyForceModel", "Created two-body force model '{}' with Earth parameters (μ = {} m³/s²)", 
-             getName(), m_mu);
+    ILOSS_LOGF_INFO(Physics, "Created two-body force model '{}' with Earth parameters (μ = {} m³/s²)", 
+                    getName(), m_mu);
 }
 
 TwoBodyForceModel::TwoBodyForceModel(const std::string& name, double mu)
@@ -34,8 +36,8 @@ TwoBodyForceModel::TwoBodyForceModel(const std::string& name, double mu)
     if (m_mu <= 0.0) {
         throw std::invalid_argument("Gravitational parameter must be positive");
     }
-    LOG_INFO("TwoBodyForceModel", "Created two-body force model '{}' with μ = {} m³/s²", 
-             getName(), m_mu);
+    ILOSS_LOGF_INFO(Physics, "Created two-body force model '{}' with μ = {} m³/s²", 
+                    getName(), m_mu);
 }
 
 math::Vector3D TwoBodyForceModel::calculateAcceleration(
@@ -50,7 +52,7 @@ math::Vector3D TwoBodyForceModel::calculateAcceleration(
     
     // Check for singularity at origin
     if (r < math::constants::POSITION_TOLERANCE) {
-        LOG_ERROR("TwoBodyForceModel", "Position too close to origin: {} m", r);
+        ILOSS_LOGF_ERROR(Physics, "TwoBodyForceModel: Position too close to origin: {} m", r);
         throw std::runtime_error("Two-body force calculation failed: position at origin");
     }
     
@@ -58,8 +60,8 @@ math::Vector3D TwoBodyForceModel::calculateAcceleration(
     double factor = -m_mu / (r * r * r);
     math::Vector3D acceleration = position * factor;
     
-    LOG_TRACE("TwoBodyForceModel", "Calculated acceleration at r={} km: a={} m/s²", 
-              r / 1000.0, acceleration.magnitude());
+    ILOSS_LOGF_TRACE(Physics, "TwoBodyForceModel: Calculated acceleration at r={} km: a={} m/s²", 
+                     r / 1000.0, acceleration.magnitude());
     
     return acceleration;
 }
@@ -79,11 +81,11 @@ bool TwoBodyForceModel::initialize(const ForceModelConfig& config) {
                 auto it = BODY_MU_VALUES.find(bodyName);
                 if (it != BODY_MU_VALUES.end()) {
                     m_mu = it->second;
-                    LOG_INFO("TwoBodyForceModel", "Set central body to {} (μ = {} m³/s²)", 
-                             m_centralBody, m_mu);
+                    ILOSS_LOGF_INFO(Physics, "Set central body to {} (μ = {} m³/s²)", 
+                                    m_centralBody, m_mu);
                 } else {
-                    LOG_WARN("TwoBodyForceModel", "Unknown central body '{}', keeping current μ value", 
-                             bodyName);
+                    ILOSS_LOGF_WARN(Physics, "TwoBodyForceModel: Unknown central body '{}', keeping current μ value", 
+                                    bodyName);
                 }
             }
         }
@@ -91,26 +93,26 @@ bool TwoBodyForceModel::initialize(const ForceModelConfig& config) {
         // Set custom mu if provided (overwrites body's default if both are given)
         if (hasMu) {
             m_mu = config.getParameter<double>("mu");
-            LOG_INFO("TwoBodyForceModel", "Set custom gravitational parameter to {} m³/s²", m_mu);
+            ILOSS_LOGF_INFO(Physics, "Set custom gravitational parameter to {} m³/s²", m_mu);
         }
         
         // Validate configuration
         if (!validate()) {
-            LOG_ERROR("TwoBodyForceModel", "Invalid configuration");
+            ILOSS_LOG_ERROR(Physics, "TwoBodyForceModel: Invalid configuration");
             return false;
         }
         
         return true;
         
     } catch (const std::exception& e) {
-        LOG_ERROR("TwoBodyForceModel", "Failed to initialize: {}", e.what());
+        ILOSS_LOGF_ERROR(Physics, "TwoBodyForceModel: Failed to initialize: {}", e.what());
         return false;
     }
 }
 
 bool TwoBodyForceModel::validate() const {
     if (m_mu <= 0.0) {
-        LOG_ERROR("TwoBodyForceModel", "Invalid gravitational parameter: {} m³/s²", m_mu);
+        ILOSS_LOGF_ERROR(Physics, "TwoBodyForceModel: Invalid gravitational parameter: {} m³/s²", m_mu);
         return false;
     }
     
@@ -139,7 +141,7 @@ void TwoBodyForceModel::setGravitationalParameter(double mu) {
         throw std::invalid_argument("Gravitational parameter must be positive");
     }
     m_mu = mu;
-    LOG_INFO("TwoBodyForceModel", "Updated gravitational parameter to {} m³/s²", m_mu);
+    ILOSS_LOGF_INFO(Physics, "Updated gravitational parameter to {} m³/s²", m_mu);
 }
 
 void TwoBodyForceModel::setCentralBody(const std::string& body) {
@@ -147,12 +149,12 @@ void TwoBodyForceModel::setCentralBody(const std::string& body) {
     if (it != BODY_MU_VALUES.end()) {
         m_centralBody = body;
         m_mu = it->second;
-        LOG_INFO("TwoBodyForceModel", "Set central body to {} (μ = {} m³/s²)", 
-                 m_centralBody, m_mu);
+        ILOSS_LOGF_INFO(Physics, "Set central body to {} (μ = {} m³/s²)", 
+                        m_centralBody, m_mu);
     } else {
         m_centralBody = body;
-        LOG_WARN("TwoBodyForceModel", "Unknown central body '{}', gravitational parameter unchanged", 
-                 body);
+        ILOSS_LOGF_WARN(Physics, "TwoBodyForceModel: Unknown central body '{}', gravitational parameter unchanged", 
+                        body);
     }
 }
 

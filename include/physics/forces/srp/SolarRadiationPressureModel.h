@@ -1,6 +1,6 @@
 #pragma once
 
-#include "physics/forces/ForceModel.h"
+#include "physics/forces/IAttitudeAwareForceModel.h"
 #include "core/coordinates/CoordinateTransformer.h"
 #include "core/math/Matrix3D.h"
 #include <memory>
@@ -45,7 +45,7 @@ struct EclipseEvent {
 };
 
 /**
- * @brief Solar radiation pressure force model
+ * @brief Solar radiation pressure force model with attitude awareness
  * 
  * This class implements solar radiation pressure (SRP) force calculation for spacecraft
  * and other objects in space. The SRP force is computed using:
@@ -65,8 +65,9 @@ struct EclipseEvent {
  * - Solar flux variations with distance
  * - Eclipse detection and prediction
  * - Support for various surface reflectivity models
+ * - Attitude-dependent area calculations when available
  */
-class SolarRadiationPressureModel : public ForceModel {
+class SolarRadiationPressureModel : public IAttitudeAwareForceModel {
 public:
     /**
      * @brief Constructor
@@ -84,9 +85,26 @@ public:
      * @param state Current state vector of the object
      * @param time Current time
      * @return Acceleration vector in m/s²
+     * 
+     * This method uses the reference area and surface normal when attitude is not available.
      */
     math::Vector3D calculateAcceleration(
         const StateVector& state,
+        const time::Time& time) const override;
+
+    /**
+     * @brief Calculate acceleration with attitude-dependent area
+     * @param state Full dynamics state including attitude
+     * @param time Current time
+     * @return Acceleration vector in m/s²
+     * 
+     * When attitude is available, this method calculates the actual
+     * cross-sectional area and surface orientation based on the spacecraft's
+     * attitude relative to the Sun direction. This provides more accurate
+     * SRP calculations for non-spherical spacecraft.
+     */
+    math::Vector3D calculateAccelerationWithAttitude(
+        const dynamics::DynamicsState& state,
         const time::Time& time) const override;
 
     /**
@@ -188,6 +206,24 @@ public:
     void setMoonShadow(bool enable);
     void setSurfaceNormal(const math::Vector3D& normal);
 
+    /**
+     * @brief Get the reference area for SRP calculation
+     * @return Reference area in m²
+     * 
+     * This returns the fixed cross-sectional area used when attitude
+     * information is not available.
+     */
+    double getReferenceArea() const override { return m_area; }
+
+    /**
+     * @brief Set the reference area for SRP calculation
+     * @param area Reference area in m²
+     * 
+     * This sets the fixed cross-sectional area used when attitude
+     * information is not available.
+     */
+    void setReferenceArea(double area) override { setCrossSectionalArea(area); }
+
     // Solar information getters (updated by update() method)
     const math::Vector3D& getSunPosition() const { return m_sunPosition; }
     double getSunDistance() const { return m_sunDistance; }
@@ -250,6 +286,20 @@ protected:
     double calculateEffectiveArea(
         const math::Vector3D& sunDirection,
         const math::Vector3D& surfaceNormal) const;
+
+    /**
+     * @brief Calculate attitude-dependent cross-sectional area
+     * @param sunDirection Unit vector towards Sun (body frame)
+     * @param attitude Current attitude quaternion
+     * @return Effective cross-sectional area in m²
+     * 
+     * This method can be overridden by derived classes to implement
+     * specific area models for different spacecraft geometries.
+     * The default implementation uses the surface normal and flat plate model.
+     */
+    virtual double calculateAttitudeDependentArea(
+        const math::Vector3D& sunDirection,
+        const math::Quaternion& attitude) const;
 
 private:
     // Configuration parameters

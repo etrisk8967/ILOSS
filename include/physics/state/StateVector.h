@@ -3,6 +3,7 @@
 #include "core/math/Vector3D.h"
 #include "core/time/Time.h"
 #include "core/coordinates/CoordinateSystem.h"
+#include <Eigen/Core>
 #include <sstream>
 #include <memory>
 #include <vector>
@@ -228,6 +229,75 @@ public:
      * @return True if states are not equal
      */
     bool operator!=(const StateVector& other) const;
+
+    // Arithmetic operators for integration
+    /**
+     * @brief Addition operator for state vectors
+     * @param other Other state vector to add
+     * @return Sum of the two state vectors
+     * @throws std::invalid_argument if coordinate systems don't match
+     */
+    StateVector operator+(const StateVector& other) const;
+
+    /**
+     * @brief Scalar multiplication operator
+     * @param scalar Scalar value to multiply by
+     * @return Scaled state vector
+     */
+    StateVector operator*(double scalar) const;
+
+    /**
+     * @brief Friend scalar multiplication operator
+     * @param scalar Scalar value to multiply by
+     * @param state State vector to scale
+     * @return Scaled state vector
+     */
+    friend StateVector operator*(double scalar, const StateVector& state);
+
+    // Integration support methods
+    /**
+     * @brief Get the dimension of the state vector
+     * @return Dimension (7: 3 position + 3 velocity + 1 mass)
+     */
+    std::size_t getDimension() const { return 7; }
+
+
+    /**
+     * @brief Get time as a double (seconds since J2000)
+     * @return Time in seconds since J2000
+     */
+    double getTimeAsDouble() const;
+    
+    /**
+     * @brief Set time from a double (seconds since J2000)
+     * @param timeJ2000 Time in seconds since J2000
+     */
+    void setTime(double timeJ2000);
+
+    /**
+     * @brief Convert state to Eigen vector representation
+     * @return Vector containing [position(3), velocity(3), mass(1)]
+     */
+    Eigen::VectorXd toVector() const;
+
+    /**
+     * @brief Create state from Eigen vector representation
+     * @param vec Vector containing [position(3), velocity(3), mass(1)]
+     * @param timeJ2000 Time in seconds since J2000
+     * @param coordinateSystem Coordinate system (default: ECI J2000)
+     * @return New StateVector instance
+     */
+    static StateVector fromVector(const Eigen::VectorXd& vec, 
+                                  double timeJ2000,
+                                  coordinates::CoordinateSystemType coordinateSystem = 
+                                      coordinates::CoordinateSystemType::ECI_J2000);
+
+    /**
+     * @brief Calculate error norm between two states
+     * @param other Other state to compare with
+     * @return Weighted error norm suitable for adaptive integration
+     */
+    double errorNorm(const StateVector& other) const;
 
     // String representation
     /**

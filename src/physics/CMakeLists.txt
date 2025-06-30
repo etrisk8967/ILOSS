@@ -1,3 +1,5 @@
 # Physics module
 add_subdirectory(state)
 add_subdirectory(forces)
+add_subdirectory(integrators)
+add_subdirectory(dynamics)
