@@ -1,10 +1,11 @@
 #include <gtest/gtest.h>
-#include "physics/dynamics/DynamicsIntegrator.h"
 #include "physics/dynamics/DynamicsEngine.h"
 #include "physics/dynamics/SimpleMassProperties.h"
 #include "physics/dynamics/torques/GravityGradientTorque.h"
 #include "physics/forces/SimpleGravityModel.h"
-#include "physics/integrators/RK4Integrator.h"
+#include "physics/integrators/DynamicsIntegratorAdapter.h"
+#include "physics/integrators/GenericRK4Integrator.h"
+#include "physics/integrators/GenericRK78Integrator.h"
 #include "core/math/MathConstants.h"
 #include <cmath>
 #include <vector>
@@ -37,16 +38,15 @@ protected:
         
         engine = std::make_shared<DynamicsEngine>(massProps, forceAgg, torqueAgg);
         
-        // Create RK4 integrator
+        // Create adapter and generic integrators
         IntegratorConfig config;
         config.initialStepSize = 0.01;  // 0.01 second for high accuracy
         config.minStepSize = 0.001;
         config.maxStepSize = 0.1;
-        
-        rk4Integrator = std::make_shared<RK4Integrator>(config);
-        
-        // Create dynamics integrator
-        dynamicsIntegrator = std::make_unique<DynamicsIntegrator>(engine, rk4Integrator);
+
+        adapter = std::make_shared<DynamicsIntegratorAdapter>(engine);
+        rk4Integrator = std::make_shared<GenericRK4Integrator<DynamicsState, DynamicsIntegratorAdapter>>(config);
+        rk78Integrator = std::make_shared<GenericRK78Integrator<DynamicsState, DynamicsIntegratorAdapter>>(config);
         
         // Create initial state (500 km circular orbit)
         double altitude = 500000.0;
@@ -63,24 +63,21 @@ protected:
 
     std::shared_ptr<SimpleMassProperties> massProps;
     std::shared_ptr<DynamicsEngine> engine;
-    std::shared_ptr<RK4Integrator> rk4Integrator;
-    std::unique_ptr<DynamicsIntegrator> dynamicsIntegrator;
+    std::shared_ptr<DynamicsIntegratorAdapter> adapter;
+    std::shared_ptr<GenericRK4Integrator<DynamicsState, DynamicsIntegratorAdapter>> rk4Integrator;
+    std::shared_ptr<GenericRK78Integrator<DynamicsState, DynamicsIntegratorAdapter>> rk78Integrator;
     std::unique_ptr<DynamicsState> initialState;
 };
 
 TEST_F(DynamicsIntegratorTest, Constructor) {
-    EXPECT_EQ(dynamicsIntegrator->getEngine(), engine);
-    EXPECT_EQ(dynamicsIntegrator->getIntegrator(), rk4Integrator);
+    EXPECT_EQ(adapter->getDynamicsEngine(), engine);
+    EXPECT_EQ(rk4Integrator->getType(), "GenericRK4");
+    EXPECT_EQ(rk78Integrator->getType(), "GenericRK78");
 }
 
 TEST_F(DynamicsIntegratorTest, NullArguments) {
     EXPECT_THROW(
-        DynamicsIntegrator(nullptr, rk4Integrator),
-        std::invalid_argument
-    );
-    
-    EXPECT_THROW(
-        DynamicsIntegrator(engine, nullptr),
+        DynamicsIntegratorAdapter(nullptr),
         std::invalid_argument
     );
 }
@@ -88,8 +85,8 @@ TEST_F(DynamicsIntegratorTest, NullArguments) {
 TEST_F(DynamicsIntegratorTest, BasicIntegration) {
     double finalTime = 10.0;  // 10 seconds
     
-    DynamicsState finalState = dynamicsIntegrator->integrate(
-        *initialState, finalTime
+    DynamicsState finalState = rk4Integrator->integrate(
+        *initialState, *adapter, finalTime
     );
     
     // Check time advanced (with small tolerance for numerical precision)
@@ -110,16 +107,16 @@ TEST_F(DynamicsIntegratorTest, OrbitalMotion) {
     double radius = initialState->getPosition().magnitude();
     double period = 2.0 * M_PI * std::sqrt(radius * radius * radius / constants::EARTH_MU);
     
-    DynamicsState finalState = dynamicsIntegrator->integrate(
-        *initialState, period
+    DynamicsState finalState = rk78Integrator->integrate(
+        *initialState, *adapter, period
     );
     
     // Should return close to initial position (circular orbit)
     double posError = (finalState.getPosition() - initialState->getPosition()).magnitude();
     double relError = posError / radius;
     
-    // RK4 with 0.01 second step should give reasonable accuracy for full orbit
-    EXPECT_LT(relError, 0.001);  // Less than 0.1% error for 5400s orbit with RK4
+    // Adaptive RK78 should give high accuracy for full orbit
+    EXPECT_LT(relError, 1e-4);  // Less than 0.01% error
 }
 
 TEST_F(DynamicsIntegratorTest, AngularMomentumConservation) {
@@ -130,8 +127,8 @@ TEST_F(DynamicsIntegratorTest, AngularMomentumConservation) {
     Vector3D L0 = initialState->getAngularMomentumInertial(*massProps);
     
     // Integrate for 100 seconds
-    DynamicsState finalState = dynamicsIntegrator->integrate(
-        *initialState, 100.0
+    DynamicsState finalState = rk4Integrator->integrate(
+        *initialState, *adapter, 100.0
     );
     
     // Calculate final angular momentum
@@ -151,8 +148,8 @@ TEST_F(DynamicsIntegratorTest, EnergyConservation) {
                 initialState->getRotationalKineticEnergy(*massProps) / massProps->getMass();
     
     // Integrate for 100 seconds
-    DynamicsState finalState = dynamicsIntegrator->integrate(
-        *initialState, 100.0
+    DynamicsState finalState = rk4Integrator->integrate(
+        *initialState, *adapter, 100.0
     );
     
     // Calculate final energy
@@ -171,10 +168,11 @@ TEST_F(DynamicsIntegratorTest, StateCallback) {
     auto callback = [&states, &times](const DynamicsState& state, double time) {
         states.push_back(state);
         times.push_back(time);
+        return true;
     };
     
     double finalTime = 10.0;
-    dynamicsIntegrator->integrate(*initialState, finalTime, callback);
+    rk4Integrator->integrate(*initialState, *adapter, finalTime, callback);
     
     // Should have multiple intermediate states
     EXPECT_GT(states.size(), 2);  // At least initial, some intermediate, and final
@@ -200,8 +198,8 @@ TEST_F(DynamicsIntegratorTest, GravityGradientStabilization) {
     // Integrate for moderate time
     double finalTime = 100.0;  // Enough to see dynamics
     
-    DynamicsState finalState = dynamicsIntegrator->integrate(
-        *initialState, finalTime
+    DynamicsState finalState = rk4Integrator->integrate(
+        *initialState, *adapter, finalTime
     );
     
     // Angular velocity magnitude should decrease (but not to zero without damping)
@@ -217,8 +215,8 @@ TEST_F(DynamicsIntegratorTest, StateVectorConversion) {
     // Test internal conversion functions by verifying round-trip
     double finalTime = 1.0;
     
-    DynamicsState finalState = dynamicsIntegrator->integrate(
-        *initialState, finalTime
+    DynamicsState finalState = rk4Integrator->integrate(
+        *initialState, *adapter, finalTime
     );
     
     // Verify all components were properly integrated
@@ -240,11 +238,11 @@ TEST_F(DynamicsIntegratorTest, MultipleIntegrationSteps) {
     double t0 = initialState->getTime().getJ2000(iloss::time::TimeSystem::UTC);
     
     // Single step
-    DynamicsState state1 = dynamicsIntegrator->integrate(*initialState, t0 + 2 * dt);
+    DynamicsState state1 = rk4Integrator->integrate(*initialState, *adapter, t0 + 2 * dt);
     
     // Two steps
-    DynamicsState intermediate = dynamicsIntegrator->integrate(*initialState, t0 + dt);
-    DynamicsState state2 = dynamicsIntegrator->integrate(intermediate, t0 + 2 * dt);
+    DynamicsState intermediate = rk4Integrator->integrate(*initialState, *adapter, t0 + dt);
+    DynamicsState state2 = rk4Integrator->integrate(intermediate, *adapter, t0 + 2 * dt);
     
     // Results should be very close (not exact due to adaptive stepping)
     double posError = (state1.getPosition() - state2.getPosition()).magnitude();
