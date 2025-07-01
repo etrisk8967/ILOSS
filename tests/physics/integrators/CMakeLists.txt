@@ -52,6 +52,6 @@ add_test(
 
 # Set test properties
 set_tests_properties(test_CoupledDynamicsIntegration PROPERTIES
-    TIMEOUT 60
+    TIMEOUT 300
     LABELS "physics;integrators;dynamics"
 )

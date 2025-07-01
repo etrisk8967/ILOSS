@@ -71,8 +71,9 @@ TEST_F(RK4IntegratorTest, CircularOrbitIntegration) {
     double period = 2.0 * M_PI * std::sqrt(std::pow(radius, 3) / EarthModel::MU);
     
     // Integrate for one full orbit
+    double targetTime = initialState.getTime().getJ2000(iloss::time::TimeSystem::UTC) + period;
     StateVector finalState = integrator->integrate(
-        initialState, *forceAggregator, period);
+        initialState, *forceAggregator, targetTime);
     
     // Check that we returned to approximately the same position
     double positionError = (finalState.getPosition() - initialState.getPosition()).magnitude();
@@ -103,7 +104,9 @@ TEST_F(RK4IntegratorTest, SingleStep) {
     EXPECT_TRUE(result.stepAccepted);
     EXPECT_DOUBLE_EQ(result.actualStepSize, 1.0);
     EXPECT_DOUBLE_EQ(result.estimatedError, 0.0); // RK4 doesn't estimate error
-    EXPECT_DOUBLE_EQ(result.newState.getTime().getJ2000(), 1.0);
+    
+    // After 1 second, time should be 1.0 (since initial time is 0.0 J2000)
+    EXPECT_DOUBLE_EQ(result.newState.getTime().getJ2000(iloss::time::TimeSystem::UTC), 1.0);
     
     // Check that position and velocity changed
     EXPECT_NE(result.newState.getPosition().x(), initialState.getPosition().x());
@@ -118,15 +121,17 @@ TEST_F(RK4IntegratorTest, BackwardIntegration) {
     initialState.setMass(1000.0);
     initialState.setTime(iloss::time::Time(100.0 + iloss::time::TimeConstants::J2000_EPOCH, iloss::time::TimeSystem::UTC));
     
-    // Integrate backward to t=0
+    // Integrate backward to t=0 (J2000 epoch)
+    double targetTimeBackward = 0.0;  // 0 seconds since J2000 epoch
     StateVector backwardState = integrator->integrate(
-        initialState, *forceAggregator, 0.0);
+        initialState, *forceAggregator, targetTimeBackward);
     
-    EXPECT_DOUBLE_EQ(backwardState.getTime().getTime(), 0.0);
+    EXPECT_DOUBLE_EQ(backwardState.getTime().getJ2000(iloss::time::TimeSystem::UTC), 0.0);
     
-    // Integrate forward again
+    // Integrate forward again to original time
+    double targetTimeForward = 100.0;  // 100 seconds since J2000 epoch
     StateVector forwardState = integrator->integrate(
-        backwardState, *forceAggregator, 100.0);
+        backwardState, *forceAggregator, targetTimeForward);
     
     // Should return to approximately the same state
     double positionError = (forwardState.getPosition() - initialState.getPosition()).magnitude();
@@ -150,7 +155,8 @@ TEST_F(RK4IntegratorTest, StatisticsCollection) {
     initialState.setTime(iloss::time::Time(iloss::time::TimeConstants::J2000_EPOCH, iloss::time::TimeSystem::UTC));
     
     // Integrate for 100 seconds
-    integrator->integrate(initialState, *forceAggregator, 100.0);
+    double targetTime = initialState.getTime().getJ2000(iloss::time::TimeSystem::UTC) + 100.0;
+    integrator->integrate(initialState, *forceAggregator, targetTime);
     
     const auto& stats = integrator->getStatistics();
     
@@ -189,13 +195,14 @@ TEST_F(RK4IntegratorTest, CallbackFunction) {
         return true; // Continue integration
     };
     
-    integrator->integrate(initialState, *forceAggregator, 50.0, callback);
+    double targetTime = initialState.getTime().getJ2000(iloss::time::TimeSystem::UTC) + 50.0;
+    integrator->integrate(initialState, *forceAggregator, targetTime, callback);
     
     // Should have 5 intermediate states (10s steps from 0 to 50s)
     EXPECT_EQ(times.size(), 5);
     EXPECT_EQ(positions.size(), 5);
     
-    // Check that times are correct
+    // Check that times are correct (J2000 seconds)
     for (size_t i = 0; i < times.size(); ++i) {
         EXPECT_DOUBLE_EQ(times[i], (i + 1) * 10.0);
     }
@@ -215,18 +222,20 @@ TEST_F(RK4IntegratorTest, CallbackEarlyTermination) {
         return callCount < 3; // Stop after 3 calls
     };
     
+    double targetTime = initialState.getTime().getJ2000(iloss::time::TimeSystem::UTC) + 100.0;
     StateVector finalState = integrator->integrate(
-        initialState, *forceAggregator, 100.0, callback);
+        initialState, *forceAggregator, targetTime, callback);
     
     EXPECT_EQ(callCount, 3);
-    EXPECT_DOUBLE_EQ(finalState.getTime().getJ2000(), 30.0); // 3 steps of 10s each
+    EXPECT_DOUBLE_EQ(finalState.getTime().getJ2000(iloss::time::TimeSystem::UTC), 30.0); // 3 steps of 10s each
 }
 
 // Test error handling
 TEST_F(RK4IntegratorTest, InvalidInitialState) {
     StateVector invalidState; // Uninitialized state
     
-    EXPECT_THROW(integrator->integrate(invalidState, *forceAggregator, 100.0),
+    double targetTime = 100.0;  // Some arbitrary target time
+    EXPECT_THROW(integrator->integrate(invalidState, *forceAggregator, targetTime),
                  std::invalid_argument);
 }
 
@@ -238,7 +247,8 @@ TEST_F(RK4IntegratorTest, TargetTimeBeforeInitialTime) {
     initialState.setTime(iloss::time::Time(100.0 + iloss::time::TimeConstants::J2000_EPOCH, iloss::time::TimeSystem::UTC));
     
     // This should work (backward integration)
-    EXPECT_NO_THROW(integrator->integrate(initialState, *forceAggregator, 0.0));
+    double targetTime = 0.0;  // Back to J2000 epoch (0 seconds since J2000)
+    EXPECT_NO_THROW(integrator->integrate(initialState, *forceAggregator, targetTime));
 }
 
 // Test maximum iterations
@@ -255,7 +265,8 @@ TEST_F(RK4IntegratorTest, MaxIterationsExceeded) {
     initialState.setTime(iloss::time::Time(iloss::time::TimeConstants::J2000_EPOCH, iloss::time::TimeSystem::UTC));
     
     // Try to integrate for 100 seconds with max 10 iterations
-    EXPECT_THROW(integrator->integrate(initialState, *forceAggregator, 100.0),
+    double targetTime = initialState.getTime().getJ2000(iloss::time::TimeSystem::UTC) + 100.0;
+    EXPECT_THROW(integrator->integrate(initialState, *forceAggregator, targetTime),
                  std::runtime_error);
 }
 
@@ -280,8 +291,9 @@ TEST_F(RK4IntegratorTest, KeplersThirdLaw) {
                                                       EarthModel::MU);
         
         // Integrate for one orbit
+        double targetTime = initialState.getTime().getJ2000(iloss::time::TimeSystem::UTC) + expectedPeriod;
         StateVector finalState = integrator->integrate(
-            initialState, *forceAggregator, expectedPeriod);
+            initialState, *forceAggregator, targetTime);
         
         // Check position return
         double posError = (finalState.getPosition() - initialState.getPosition()).magnitude();
@@ -319,8 +331,9 @@ TEST_F(RK4IntegratorTest, StepSizeAccuracy) {
     refConfig.initialStepSize = 0.1; // 0.1 second
     RK4Integrator refIntegrator(refConfig);
     
+    double targetTime = initialState.getTime().getJ2000(iloss::time::TimeSystem::UTC) + 100.0;
     StateVector refState = refIntegrator.integrate(
-        initialState, *forceAggregator, 100.0);
+        initialState, *forceAggregator, targetTime);
     
     // Test with different step sizes
     std::vector<double> stepSizes = {1.0, 5.0, 10.0, 20.0};
@@ -332,7 +345,7 @@ TEST_F(RK4IntegratorTest, StepSizeAccuracy) {
         RK4Integrator testIntegrator(config);
         
         StateVector testState = testIntegrator.integrate(
-            initialState, *forceAggregator, 100.0);
+            initialState, *forceAggregator, targetTime);
         
         double error = (testState.getPosition() - refState.getPosition()).magnitude();
         errors.push_back(error);

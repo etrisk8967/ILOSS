@@ -58,7 +58,10 @@ StateVector RK4Integrator::addScaledDerivative(
     result.setMass(state.getMass());
     
     // Time: t_new = t + scale
-    result.setTime(iloss::time::Time(state.getTime().getJ2000() + scale + iloss::time::TimeConstants::J2000_EPOCH, iloss::time::TimeSystem::UTC));
+    // Create new time by adding scale seconds to the current time
+    iloss::time::Time newTime = state.getTime();
+    newTime.addSeconds(scale);
+    result.setTime(newTime);
     
     // Preserve coordinate system
     result.setCoordinateSystem(state.getCoordinateSystem());
@@ -77,7 +80,7 @@ StateVector RK4Integrator::integrate(
         throw std::invalid_argument("RK4Integrator: Invalid initial state");
     }
     
-    double initialTime = initialState.getTime().getJ2000();
+    double initialTime = initialState.getTime().getJ2000(iloss::time::TimeSystem::UTC);
     double timeSpan = targetTime - initialTime;
     
     if (std::abs(timeSpan) < std::numeric_limits<double>::epsilon()) {
@@ -118,7 +121,7 @@ StateVector RK4Integrator::multiStepIntegration(
     StepCallback callback) {
     
     StateVector state = currentState;
-    double currentTime = state.getTime().getJ2000();
+    double currentTime = state.getTime().getJ2000(iloss::time::TimeSystem::UTC);
     double remainingTime = targetTime - currentTime;
     
     // Determine step direction (forward or backward in time)
@@ -127,11 +130,28 @@ StateVector RK4Integrator::multiStepIntegration(
     
     size_t iterationCount = 0;
     
-    while (remainingTime > std::numeric_limits<double>::epsilon() && 
+    // Use a more reasonable epsilon for time comparisons (1 microsecond)
+    const double TIME_EPSILON = 1e-6;
+    
+    // Special handling for target time near zero (J2000 epoch)
+    // This is needed because floating point precision issues can prevent
+    // us from reaching exactly 0.0
+    bool targetNearZero = std::abs(targetTime) < TIME_EPSILON;
+    
+    // Debug for backward integration issue
+    bool debugBackward = false; // (stepDirection < 0);
+    
+    while (remainingTime > TIME_EPSILON && 
            iterationCount < m_config.maxIterations) {
         
         // Determine step size
-        double stepSize = std::min(m_config.initialStepSize, remainingTime) * stepDirection;
+        double stepSize;
+        if (remainingTime < m_config.initialStepSize) {
+            // Final step - take exactly what's needed
+            stepSize = remainingTime * stepDirection;
+        } else {
+            stepSize = m_config.initialStepSize * stepDirection;
+        }
         
         // Perform one RK4 step
         StepResult result = step(state, forceModel, stepSize);
@@ -143,18 +163,46 @@ StateVector RK4Integrator::multiStepIntegration(
         state = result.newState;
         
         // Call user callback if provided
-        if (callback && !callback(state, state.getTime().getJ2000())) {
+        if (callback && !callback(state, state.getTime().getJ2000(iloss::time::TimeSystem::UTC))) {
             break;
         }
         
         // Update remaining time
-        currentTime = state.getTime().getJ2000();
+        double previousRemainingTime = remainingTime;
+        currentTime = state.getTime().getJ2000(iloss::time::TimeSystem::UTC);
+        
+        // Special handling for target near zero
+        if (targetNearZero && std::abs(currentTime) < TIME_EPSILON) {
+            // We're close enough to J2000 epoch
+            break;
+        }
+        
         remainingTime = std::abs(targetTime - currentTime);
         
+        // Check if we're making progress
+        double progress = previousRemainingTime - remainingTime;
+        if (progress < TIME_EPSILON * 0.1) {
+            // We're not making sufficient progress, we're close enough
+            if (debugBackward && iterationCount < 5) {
+                LOG_DEBUG("Breaking: remainingTime={}, previousRemainingTime={}, progress={}", 
+                          remainingTime, previousRemainingTime, progress);
+            }
+            break;
+        }
+        
         iterationCount++;
+        
+        if (debugBackward && (iterationCount < 5 || iterationCount > 999995)) {
+            LOG_DEBUG("RK4 Iteration {}: currentTime={}, remainingTime={}, stepSize={}, targetNearZero={}", 
+                      iterationCount, currentTime, remainingTime, stepSize, targetNearZero);
+        }
     }
     
     if (iterationCount >= m_config.maxIterations) {
+        if (debugBackward) {
+            LOG_ERROR("Backward integration failed: currentTime={}, targetTime={}, remainingTime={}, iterations={}", 
+                      currentTime, targetTime, remainingTime, iterationCount);
+        }
         throw std::runtime_error("RK4Integrator: Maximum iterations exceeded");
     }
     
@@ -230,7 +278,10 @@ IIntegrator::StepResult RK4Integrator::step(
     result.newState.setPosition(newPosition);
     result.newState.setVelocity(newVelocity);
     result.newState.setMass(currentState.getMass());  // No mass change for now
-    result.newState.setTime(currentState.getTime().getTime() + h);
+    // Set time: add step size to current time
+    iloss::time::Time newTime = currentState.getTime();
+    newTime.addSeconds(h);
+    result.newState.setTime(newTime);
     result.newState.setCoordinateSystem(currentState.getCoordinateSystem());
     result.actualStepSize = h;
     result.estimatedError = 0.0;  // RK4 doesn't provide error estimate

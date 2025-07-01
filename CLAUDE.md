@@ -188,3 +188,206 @@ Maintain these standards:
 ---
 
 Remember: Quality over speed. It's better to implement something correctly the first time than to create technical debt that will slow down future development. Each task builds on previous work, so maintaining high standards throughout is critical for project success.
+
+## Task 25: Propulsion System Modeling - Implementation Instructions
+
+### Overview
+Task 25 implements a comprehensive propulsion system that integrates with the existing 6-DOF dynamics engine. The implementation must support thrust forces, mass depletion, specific impulse handling, thrust vector control, and multi-engine configurations.
+
+### Key Requirements
+1. **Integration with Existing Systems**:
+   - Must implement `IAttitudeAwareForceModel` for thrust force calculations
+   - Must implement `IMassProperties` for time-varying mass properties
+   - Must work seamlessly with `ForceAggregator` and `DynamicsEngine`
+
+2. **Physical Accuracy**:
+   - Use Tsiolkovsky rocket equation for mass flow: ṁ = F/(g₀·Isp)
+   - Model atmospheric back-pressure effects: F = F_vac - p_amb·A_exit
+   - Transform thrust vectors correctly from body to inertial frame
+
+3. **Production-Ready Features**:
+   - Thread-safe implementation for parallel simulations
+   - Comprehensive error handling and validation
+   - Support for multiple engines and propellant tanks
+   - Configurable via JSON/ForceModelConfig
+   - Full Doxygen documentation
+
+### Implementation Order
+1. **PropulsionConstants.h**: Define g₀ = 9.80665 m/s² and other constants
+2. **PropellantTank**: Simple class to track propellant mass and type
+3. **Engine**: Core engine model with thrust curves and Isp
+4. **ThrustVectorControl**: Gimbal modeling for thrust direction
+5. **PropulsionSystem**: Manages engines/tanks, implements IMassProperties
+6. **ThrustForceModel**: Main force model implementing IAttitudeAwareForceModel
+
+### Critical Implementation Details
+
+#### Engine Class Must Support:
+```cpp
+class Engine {
+    // Required parameters
+    double m_vacuumThrust;      // N
+    double m_vacuumIsp;         // s
+    double m_seaLevelThrust;    // N (optional)
+    double m_seaLevelIsp;       // s (optional)
+    double m_minThrottle;       // 0-1
+    double m_maxThrottle;       // 0-1
+    double m_nozzleExitArea;    // m²
+    
+    // Methods
+    double getThrust(double pressure, double throttle) const;
+    double getIsp(double pressure) const;
+    double getMassFlowRate(double pressure, double throttle) const;
+};
+```
+
+#### PropulsionSystem Must:
+- Track total propellant mass across all tanks
+- Update center of mass as propellant depletes
+- Update inertia tensor for mass changes
+- Return time-varying mass properties
+- Handle propellant depletion (engine shutdown when empty)
+
+#### ThrustForceModel Must:
+- Query current throttle and gimbal settings from config
+- Calculate thrust force in body frame
+- Transform to inertial frame using spacecraft attitude
+- Return acceleration (F/m) not force
+- Handle both StateVector and DynamicsState inputs
+
+### Testing Requirements
+Create tests in `/tests/physics/propulsion/` covering:
+1. **test_Engine.cpp**: Thrust curves, Isp variations, mass flow
+2. **test_PropellantTank.cpp**: Mass tracking, depletion
+3. **test_ThrustVectorControl.cpp**: Gimbal limits and transformations
+4. **test_PropulsionSystem.cpp**: Mass properties, multi-engine coordination
+5. **test_ThrustForceModel.cpp**: Force calculations, frame transformations
+6. **test_PropulsionIntegration.cpp**: Full system integration test
+
+### Common Pitfalls to Avoid
+1. **Frame Confusion**: Always be clear about body vs inertial frames
+2. **Mass Updates**: Ensure mass depletion is properly integrated
+3. **Unit Errors**: Use SI units consistently (N, kg, m, s)
+4. **Throttle Limits**: Respect min/max throttle constraints
+5. **Empty Tanks**: Handle propellant depletion gracefully
+
+### Validation Benchmarks
+Compare against:
+- Falcon 9 first stage: 7,607 kN thrust, 311s Isp (vacuum)
+- Delta-V calculations using Tsiolkovsky equation
+- Known burn durations for standard missions
+
+### Example Configuration
+```json
+{
+    "engines": [{
+        "name": "Merlin-1D",
+        "vacuum_thrust": 7607000.0,
+        "vacuum_isp": 311.0,
+        "sea_level_thrust": 6806000.0,
+        "sea_level_isp": 282.0,
+        "min_throttle": 0.4,
+        "max_throttle": 1.0
+    }],
+    "tanks": [{
+        "name": "Main Tank",
+        "propellant_type": "RP1/LOX",
+        "propellant_mass": 418000.0
+    }],
+    "throttle": 1.0,
+    "gimbal_pitch": 0.0,
+    "gimbal_yaw": 0.0
+}
+```
+
+## Task 26: Aerodynamic Force Model - Implementation Instructions
+
+### Overview
+Task 26 implements comprehensive aerodynamic forces and torques for atmospheric flight simulation. The implementation supports coefficient-based aerodynamics with Mach number and angle of attack dependencies, integrating seamlessly with the 6-DOF dynamics system.
+
+### Key Requirements
+1. **Core Components**:
+   - **AerodynamicCoefficients**: Data structures for CD, CL, CY, Cl, Cm, Cn
+   - **AerodynamicDatabase**: CSV loading and 2D interpolation (Mach, AoA)
+   - **AerodynamicCalculator**: Flow properties, Mach number, AoA calculations
+   - **AerodynamicForceModel**: IAttitudeAwareForceModel implementation
+   - **AerodynamicTorqueModel**: ITorqueModel implementation
+
+2. **Physical Accuracy**:
+   - Proper frame transformations (body, wind, stability, inertial)
+   - Dynamic pressure calculation: q = 0.5 * ρ * V²
+   - Force calculation: F = q * S * C
+   - Moment calculation: M = q * S * L * C
+   - Center of pressure effects for stability
+
+3. **Production Features**:
+   - Thread-safe coefficient database with caching
+   - CSV import/export for coefficient data
+   - Bilinear interpolation with extrapolation handling
+   - Support for multiple vehicle configurations
+   - Extended coefficients with stability derivatives
+
+### Implementation Details
+
+#### CSV Database Format:
+```csv
+# Mach, AoA_deg, CD, CL, CY, Cl, Cm, Cn
+0.0, 0.0, 0.30, 0.00, 0.0, 0.00, 0.00, 0.0
+0.0, 5.0, 0.32, 0.16, 0.0, 0.00, -0.01, 0.0
+...
+```
+
+#### Key Classes:
+1. **AerodynamicCoefficients**:
+   - Stores force coefficients (CD, CL, CY)
+   - Stores moment coefficients (Cl, Cm, Cn)
+   - Supports interpolation and scaling
+   - Extended version includes stability derivatives
+
+2. **AerodynamicDatabase**:
+   - Loads CSV files with coefficient data
+   - 2D interpolation (Mach number, angle of attack)
+   - Caching for performance
+   - Multiple configuration support
+
+3. **AerodynamicCalculator**:
+   - Static methods for flow calculations
+   - Mach number, dynamic pressure, Reynolds number
+   - Angle of attack and sideslip calculations
+   - Frame transformation matrices
+
+4. **AerodynamicForceModel**:
+   - Calculates aerodynamic forces
+   - Integrates with atmosphere models
+   - Transforms forces to inertial frame
+   - Dynamic pressure limiting option
+
+5. **AerodynamicTorqueModel**:
+   - Calculates aerodynamic moments
+   - Center of pressure effects
+   - Stability analysis support
+
+### Frame Conventions
+- **Body Frame**: X-forward, Y-right, Z-down
+- **Wind Frame**: X-along velocity, Y-right, Z-down
+- **Stability Frame**: Rotated by AoA only
+
+### Testing Coverage
+All components include comprehensive unit tests:
+- Coefficient validation and interpolation
+- Database loading and caching
+- Flow property calculations
+- Force and torque computations
+- Integration tests with realistic scenarios
+
+### Common Use Cases
+1. **Launch Vehicle Ascent**: High drag at transonic speeds
+2. **Reentry Simulation**: High angle of attack aerodynamics
+3. **Aircraft Simulation**: Full 6-DOF with stability derivatives
+4. **Stability Analysis**: Center of pressure vs center of mass
+
+### Integration with ILOSS
+- Uses existing `AtmosphericModel` for density/temperature
+- Compatible with `ForceAggregator` and `DynamicsEngine`
+- Works with 6-DOF state propagation
+- Supports both 3-DOF and 6-DOF simulations

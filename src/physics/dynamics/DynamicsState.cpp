@@ -30,27 +30,21 @@ DynamicsState DynamicsState::operator+(const DynamicsState& other) const
         // If quaternion is essentially zero, use the original attitude
         // This can happen when adding a zero derivative in RK4 intermediate steps
         newAttitude = m_attitude;
+    } else if (std::abs(qNorm - 1.0) > 0.1) {
+        // This appears to be a derivative state (quaternion far from unit)
+        // Don't normalize it
     } else {
-        // Normalize to maintain unit quaternion constraint
-        newAttitude.normalize();
+        // Regular quaternion addition - use safe normalization
+        newAttitude = newAttitude.normalizedSafe();
     }
     
     // Add angular velocities
     math::Vector3D newAngularVelocity = m_angularVelocity + other.m_angularVelocity;
     
     // When creating the result state, we need to be careful about normalization
-    // If we're adding a derivative (quaternion far from unit), don't normalize
-    bool shouldNormalize = true;
-    
-    // Check if 'other' appears to be a derivative state
-    // Derivative states have quaternions with norms far from 1.0
-    double otherQNorm = other.m_attitude.norm();
-    if (std::abs(otherQNorm - 1.0) > 0.1 || otherQNorm < 0.1) {
-        // This is likely a derivative state
-        shouldNormalize = (qNorm > 0.1);  // Only normalize if result is not near zero
-    }
-    
-    return DynamicsState(baseSum, newAttitude, newAngularVelocity, shouldNormalize);
+    // The normalization is already handled above based on the quaternion norm
+    // Don't normalize again in the constructor
+    return DynamicsState(baseSum, newAttitude, newAngularVelocity, false);
 }
 
 DynamicsState DynamicsState::operator*(double scalar) const
@@ -76,13 +70,13 @@ DynamicsState DynamicsState::operator*(double scalar) const
     double originalNorm = m_attitude.norm();
     bool isDerivative = std::abs(originalNorm - 1.0) > 0.1;
     
-    // Debug logging
-    auto& logger = logging::Logger::getInstance();
-    logger.debug(logging::LogCategory::Physics, 
-        "DynamicsState::operator* - scalar=" + std::to_string(scalar) +
-        ", originalNorm=" + std::to_string(originalNorm) +
-        ", scaledNorm=" + std::to_string(scaledQuaternion.norm()) +
-        ", isDerivative=" + std::to_string(isDerivative));
+    // Debug logging (commented out to reduce overhead during integration)
+    // auto& logger = logging::Logger::getInstance();
+    // logger.debug(logging::LogCategory::Physics, 
+    //     "DynamicsState::operator* - scalar=" + std::to_string(scalar) +
+    //     ", originalNorm=" + std::to_string(originalNorm) +
+    //     ", scaledNorm=" + std::to_string(scaledQuaternion.norm()) +
+    //     ", isDerivative=" + std::to_string(isDerivative));
     
     if (isDerivative) {
         // This is a derivative state - create using the factory method
@@ -197,7 +191,7 @@ DynamicsState DynamicsState::fromVector(const Eigen::VectorXd& vec,
     
     // Extract quaternion
     math::Quaternion attitude(vec(7), vec(8), vec(9), vec(10));
-    attitude.normalize(); // Ensure unit quaternion
+    attitude = attitude.normalizedSafe(); // Ensure unit quaternion
     
     // Extract angular velocity
     math::Vector3D angularVelocity(vec(11), vec(12), vec(13));

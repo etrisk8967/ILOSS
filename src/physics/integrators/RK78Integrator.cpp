@@ -69,7 +69,9 @@ StateVector RK78Integrator::addWeightedDerivatives(
     result.setPosition(newPosition);
     result.setVelocity(newVelocity);
     result.setMass(state.getMass());
-    result.setTime(iloss::time::Time(state.getTime().getJ2000() + stepSize + iloss::time::TimeConstants::J2000_EPOCH, iloss::time::TimeSystem::UTC));
+    iloss::time::Time newTime = state.getTime();
+    newTime.addSeconds(stepSize);
+    result.setTime(newTime);
     result.setCoordinateSystem(state.getCoordinateSystem());
     
     return result;
@@ -96,7 +98,9 @@ StateVector RK78Integrator::computeStageState(
     stageState.setPosition(stagePosition);
     stageState.setVelocity(stageVelocity);
     stageState.setMass(baseState.getMass());
-    stageState.setTime(iloss::time::Time(baseState.getTime().getJ2000() + stepSize * c[stage] + iloss::time::TimeConstants::J2000_EPOCH, iloss::time::TimeSystem::UTC));
+    iloss::time::Time stageTime = baseState.getTime();
+    stageTime.addSeconds(stepSize * c[stage]);
+    stageState.setTime(stageTime);
     stageState.setCoordinateSystem(baseState.getCoordinateSystem());
     
     return stageState;
@@ -172,7 +176,7 @@ StateVector RK78Integrator::integrate(
         throw std::invalid_argument("RK78Integrator: Invalid initial state");
     }
     
-    double initialTime = initialState.getTime().getJ2000();
+    double initialTime = initialState.getTime().getJ2000(iloss::time::TimeSystem::UTC);
     double timeSpan = targetTime - initialTime;
     
     if (std::abs(timeSpan) < std::numeric_limits<double>::epsilon()) {
@@ -212,7 +216,7 @@ StateVector RK78Integrator::adaptiveIntegration(
     StepCallback callback) {
     
     StateVector state = currentState;
-    double currentTime = state.getTime().getJ2000();
+    double currentTime = state.getTime().getJ2000(iloss::time::TimeSystem::UTC);
     double remainingTime = targetTime - currentTime;
     double stepDirection = (remainingTime > 0) ? 1.0 : -1.0;
     
@@ -231,9 +235,12 @@ StateVector RK78Integrator::adaptiveIntegration(
     size_t iterationCount = 0;
     bool lastStep = false;
     
+    // Use a more reasonable epsilon for time comparisons (1 microsecond)
+    const double TIME_EPSILON = 1e-6;
+    
     while (!lastStep && iterationCount < m_config.maxIterations) {
         // Check if this is the last step
-        if (std::abs(stepSize) >= std::abs(targetTime - currentTime)) {
+        if (std::abs(stepSize) >= std::abs(targetTime - currentTime) - TIME_EPSILON) {
             stepSize = targetTime - currentTime;
             lastStep = true;
         }
@@ -244,7 +251,7 @@ StateVector RK78Integrator::adaptiveIntegration(
         if (result.stepAccepted) {
             // Step accepted, update state
             state = result.newState;
-            currentTime = state.getTime().getJ2000();
+            currentTime = state.getTime().getJ2000(iloss::time::TimeSystem::UTC);
             
             // Call user callback
             if (callback && !callback(state, currentTime)) {
@@ -261,7 +268,8 @@ StateVector RK78Integrator::adaptiveIntegration(
                 }
                 
                 // Ensure we don't overshoot the target
-                if (std::abs(stepSize) > std::abs(targetTime - currentTime)) {
+                double remainingTime = std::abs(targetTime - currentTime);
+                if (std::abs(stepSize) > remainingTime && remainingTime > TIME_EPSILON) {
                     stepSize = targetTime - currentTime;
                 }
             }
